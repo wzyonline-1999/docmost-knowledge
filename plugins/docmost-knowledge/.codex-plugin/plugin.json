@@ -1,0 +1,41 @@
+{
+  "name": "docmost-knowledge",
+  "version": "0.1.0",
+  "description": "Search, maintain, and cite a private Docmost knowledge base through a Keychain-authenticated MCP connection.",
+  "author": {
+    "name": "wzyonline-1999",
+    "url": "https://github.com/wzyonline-1999"
+  },
+  "homepage": "https://github.com/wzyonline-1999/docmost-knowledge",
+  "repository": "https://github.com/wzyonline-1999/docmost-knowledge",
+  "keywords": [
+    "codex",
+    "docmost",
+    "knowledge-base",
+    "mcp",
+    "vector-search",
+    "keychain"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Docmost Knowledge",
+    "shortDescription": "Use a private Docmost knowledge base safely from Codex.",
+    "longDescription": "Docmost Knowledge gives Codex permission-aware search, page editing, version history, attachment, and vector-index workflows. A local stdio proxy reads the bearer token from macOS Keychain and forwards requests only over HTTPS without storing credentials in the plugin.",
+    "developerName": "wzyonline-1999",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/wzyonline-1999/docmost-knowledge",
+    "defaultPrompt": [
+      "Search my Docmost knowledge base before answering.",
+      "Save these notes to the appropriate Docmost space.",
+      "Summarize this topic and cite the Docmost pages you used.",
+      "Compare the recent versions of this Docmost page."
+    ],
+    "brandColor": "#0F766E"
+  },
+  "mcpServers": "./.mcp.json"
+}

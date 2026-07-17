@@ -1,0 +1,20 @@
+{
+  "name": "docmost-knowledge",
+  "interface": {
+    "displayName": "Docmost Knowledge"
+  },
+  "plugins": [
+    {
+      "name": "docmost-knowledge",
+      "source": {
+        "source": "local",
+        "path": "./plugins/docmost-knowledge"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
