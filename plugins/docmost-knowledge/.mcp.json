@@ -6,7 +6,7 @@
         "./scripts/docmost-keychain-proxy.cjs"
       ],
       "cwd": ".",
-      "tool_timeout_sec": 90
+      "tool_timeout_sec": 120
     }
   }
 }

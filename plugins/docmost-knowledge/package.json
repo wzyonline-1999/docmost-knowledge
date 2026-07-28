@@ -1,7 +1,7 @@
 {
   "name": "docmost-knowledge-codex-plugin",
-  "version": "0.1.0",
-  "description": "A permission-aware Codex plugin for self-hosted Docmost knowledge bases.",
+  "version": "0.2.0",
+  "description": "A permission-aware multi-profile Codex plugin for self-hosted Docmost knowledge bases.",
   "type": "commonjs",
   "license": "MIT",
   "repository": {
@@ -13,6 +13,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "doctor": "node scripts/doctor.cjs",
     "test": "node --test tests/*.test.cjs",
     "test:live": "node scripts/live-smoke.cjs"
   }

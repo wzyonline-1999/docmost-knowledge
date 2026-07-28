@@ -14,7 +14,9 @@ scraping or direct database access.
    only spaces returned by the server.
 2. Search before reading or writing. Default to `search_docs` with `hybrid`
    mode; use `keyword` for exact identifiers and `semantic` for conceptual
-   recall.
+   recall. When the user names a page subtree or directory, resolve its page ID
+   and pass it as `rootPageId`; do not imitate directory scoping with title
+   keywords.
 3. Read the selected page with `get_page` in Markdown. Do not infer missing
    content from snippets.
 4. For answers based on Docmost, cite the page title and returned page ID or
@@ -24,10 +26,12 @@ scraping or direct database access.
 
 ## Write safety
 
-- Read the current page before `update_page`; pass its `updatedAt` as
-  `expectedUpdatedAt` when available.
-- Generate one idempotency key per mutation and reuse it for retries of that
-  same mutation.
+- Read the current page immediately before `update_page` or `append_page`, and
+  always pass its `updatedAt` as `expectedUpdatedAt`. A missing or stale value
+  is a conflict that requires a fresh read, not a reason to bypass protection.
+- Generate one non-empty idempotency key for every mutation, including create,
+  update, append, delete, restore, attachment, and reindex operations. Reuse it
+  only for retries of that exact logical mutation.
 - Use `append_page` for journals and additive notes. Use `update_page` for a
   coherent replacement.
 - Require explicit user confirmation immediately before page deletion,
@@ -44,6 +48,8 @@ scraping or direct database access.
   expose credentials or raw authorization headers.
 - Stop a batch after the first failed mutation. Report completed items and the
   exact item that failed before retrying.
+- On a version conflict, re-read the page and ask before overwriting materially
+  changed content. On rate limiting, wait for the indicated retry window.
 - Never silently truncate content or attachments.
 
 Read [operations.md](references/operations.md) before mutations, version

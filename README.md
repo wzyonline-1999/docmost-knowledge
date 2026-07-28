@@ -15,11 +15,15 @@ an environment variable, then forwards MCP requests over HTTPS.
 ## Features
 
 - Permission-aware discovery of spaces and pages
-- Keyword, semantic, and hybrid search
-- Page creation, updates, append operations, and deletion safeguards
+- Keyword, semantic, and hybrid search, including one page subtree
+- Page creation, updates, append operations, and deletion safeguards with
+  mandatory idempotency and optimistic concurrency
 - Version inspection, comparison, and confirmed restoration
 - Attachment listing, upload, download, and confirmed deletion
 - Vector-index workflows exposed by the compatible server
+- Personal and company profiles with isolated endpoints and Keychain entries
+- Safe retry of known read-only tools across transient gateway failures
+- A strict v0.2 server-contract doctor and live smoke test
 - Local credential handling without storing secrets in the repository
 
 All authorization decisions remain on the Docmost server. The plugin never
@@ -46,25 +50,44 @@ Restart Codex after installation.
 
 ## Configure
 
-Create `~/.config/docmost-knowledge/config.json`:
+Create `~/.config/docmost-knowledge/config.json`. A multi-profile configuration
+keeps personal and company credentials separate:
 
 ```json
 {
-  "mcpUrl": "https://docs.example.com/mcp",
-  "keychainService": "Docmost MCP",
-  "keychainAccount": "you@example.com"
+  "defaultProfile": "personal",
+  "requestTimeoutMs": 90000,
+  "maxReadRetries": 1,
+  "profiles": {
+    "personal": {
+      "mcpUrl": "https://docs.example.com/mcp",
+      "keychainService": "Docmost MCP Personal",
+      "keychainAccount": "you@example.com"
+    },
+    "company-test": {
+      "mcpUrl": "https://docs.test.example.com/mcp",
+      "keychainService": "Docmost MCP Company Test",
+      "keychainAccount": "you@example.com"
+    }
+  }
 }
 ```
 
-The URL must use HTTPS and must not contain a username, password, or fragment.
-The configuration file contains no bearer token.
+Set `defaultProfile` to the profile the installed plugin should use, or set
+`DOCMOST_PROFILE` before starting Codex. A legacy single-profile object with
+`mcpUrl`, `keychainService`, and `keychainAccount` remains supported.
+The same example is available at
+`plugins/docmost-knowledge/examples/config.multi-profile.json`.
 
-On macOS, store the token in Keychain using the same service and account:
+The URL must use HTTPS and must not contain a username, password, query, or
+fragment. The configuration file must not contain a bearer token.
+
+On macOS, store each profile's token in Keychain using its service and account:
 
 ```bash
 read -s "DOCMOST_TOKEN?Docmost MCP token: "
 security add-generic-password -U \
-  -s "Docmost MCP" \
+  -s "Docmost MCP Personal" \
   -a "you@example.com" \
   -w "$DOCMOST_TOKEN"
 unset DOCMOST_TOKEN
@@ -76,11 +99,20 @@ variables:
 
 | Variable | Purpose |
 | --- | --- |
+| `DOCMOST_PROFILE` | Select a named profile from the JSON config |
 | `DOCMOST_MCP_URL` | Compatible HTTPS MCP endpoint |
 | `DOCMOST_MCP_TOKEN` | Bearer token; takes precedence over Keychain |
 | `DOCMOST_KEYCHAIN_SERVICE` | macOS Keychain service name |
 | `DOCMOST_KEYCHAIN_ACCOUNT` | macOS Keychain account name |
 | `DOCMOST_CONFIG_FILE` | Optional alternative path to the JSON config |
+| `DOCMOST_REQUEST_TIMEOUT_MS` | Per-request timeout, from 1,000 to 300,000 ms |
+| `DOCMOST_MAX_READ_RETRIES` | Transient retries for known read tools, from 0 to 3 |
+| `DOCMOST_RETRY_DELAY_MS` | Base read-retry delay, from 0 to 5,000 ms |
+
+One plugin process selects one profile. To expose two profiles to Codex at the
+same time, define two intentionally named MCP server entries that run this
+proxy with different `DOCMOST_PROFILE` values. Do not keep an old manually
+configured server that points to the same profile as the installed plugin.
 
 ## Server contract
 
@@ -89,9 +121,33 @@ with an `Authorization: Bearer ...` header, and implement `tools/list` and
 `tools/call`. It should enforce token permissions independently for every
 space, operation, version, attachment, and vector-search action.
 
+The v0.2 contract expects all 27 page, history, attachment, search, and
+vector-job tools. It also verifies:
+
+- `search_docs` and `semantic_search_docs` support `rootPageId`
+- every mutation requires `idempotencyKey`
+- `update_page` and `append_page` require `expectedUpdatedAt`
+
 The local proxy handles `initialize` and `ping`, rejects redirects, validates
-remote responses, applies a 30-second transport timeout, and avoids including
-credentials in error messages.
+remote responses, applies a configurable 90-second default timeout, preserves
+safe JSON-RPC errors on HTTP 409/429, retries only known read operations on
+HTTP 502/503/504, and avoids including credentials in error messages.
+
+The plugin continues to use MCP even when the server also exposes a unified
+Developer API. A load balancer and multiple Docmost application replicas are
+transparent to the plugin as long as they share the same server-side
+PostgreSQL, Redis, object storage, secrets, and permission model.
+
+## Upgrade from v0.1
+
+The plugin registers an MCP server named `docmost-knowledge`. Remove an older
+manual `[mcp_servers.docmost]` entry when it invokes a hard-coded proxy for the
+same endpoint. Keeping both produces duplicate tools and can make Codex select
+the wrong server.
+
+Existing single-profile JSON configuration continues to work. Convert it to
+`profiles` only when you need separate personal, company-test, or company
+production endpoints.
 
 ## Development
 
@@ -102,11 +158,22 @@ cd plugins/docmost-knowledge
 npm test
 ```
 
-Run the live smoke test only after configuring a compatible server and token:
+Validate local configuration, Keychain access, the remote tool catalog, and the
+strict v0.2 contract:
+
+```bash
+npm run doctor
+```
+
+Run the end-to-end stdio live smoke test only after configuring a compatible
+server and token:
 
 ```bash
 npm run test:live
 ```
+
+During a staged server upgrade, append `-- --warn` to either command to report
+missing v0.2 capabilities without failing the process.
 
 ## License
 

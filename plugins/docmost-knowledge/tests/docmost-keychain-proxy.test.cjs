@@ -9,8 +9,10 @@ const {
   dispatchRequest,
   getConfig,
   handleLine,
+  parseIntegerSetting,
   readConfigFile,
   readTokenFromKeychain,
+  resolveProfile,
   resolveToken,
 } = require("../scripts/docmost-keychain-proxy.cjs");
 
@@ -48,6 +50,14 @@ test("getConfig accepts only credential-free HTTPS URLs", () => {
     () => getConfig({}, missingConfigFile),
     /DOCMOST_MCP_URL/,
   );
+  assert.throws(
+    () =>
+      getConfig(
+        { DOCMOST_MCP_URL: "https://docs.example.com/mcp?token=secret" },
+        missingConfigFile,
+      ),
+    /without query or fragment/,
+  );
 });
 
 test("getConfig reads non-secret settings from the config file", () => {
@@ -62,10 +72,117 @@ test("getConfig reads non-secret settings from the config file", () => {
   );
 
   assert.deepEqual(config, {
+    profileName: "default",
     remoteUrl: "https://docs.example.com/mcp",
     keychainService: "Docmost MCP",
     keychainAccount: "user@example.com",
+    requestTimeoutMs: 90_000,
+    maxReadRetries: 1,
+    retryDelayMs: 250,
   });
+});
+
+test("getConfig selects a profile and applies shared and environment settings", () => {
+  const config = getConfig(
+    {
+      DOCMOST_CONFIG_FILE: "/tmp/docmost-config.json",
+      DOCMOST_PROFILE: "company-test",
+      DOCMOST_REQUEST_TIMEOUT_MS: "120000",
+    },
+    () =>
+      JSON.stringify({
+        defaultProfile: "personal",
+        maxReadRetries: 2,
+        profiles: {
+          personal: {
+            mcpUrl: "https://docs.example.com/mcp",
+            keychainService: "Docmost Personal",
+            keychainAccount: "user@example.com",
+          },
+          "company-test": {
+            mcpUrl: "https://docs.test.example.com/mcp",
+            keychainService: "Docmost Company Test",
+            keychainAccount: "user@example.com",
+          },
+        },
+      }),
+  );
+
+  assert.deepEqual(config, {
+    profileName: "company-test",
+    remoteUrl: "https://docs.test.example.com/mcp",
+    keychainService: "Docmost Company Test",
+    keychainAccount: "user@example.com",
+    requestTimeoutMs: 120_000,
+    maxReadRetries: 2,
+    retryDelayMs: 250,
+  });
+});
+
+test("resolveProfile requires an explicit selection for multiple profiles", () => {
+  assert.throws(
+    () =>
+      resolveProfile(
+        {
+          profiles: {
+            personal: { mcpUrl: "https://docs.example.com/mcp" },
+            company: { mcpUrl: "https://docs.company.example.com/mcp" },
+          },
+        },
+        {},
+      ),
+    /DOCMOST_PROFILE or defaultProfile/,
+  );
+});
+
+test("getConfig rejects bearer tokens stored in JSON", () => {
+  assert.throws(
+    () =>
+      getConfig(
+        { DOCMOST_CONFIG_FILE: "/tmp/docmost-config.json" },
+        () =>
+          JSON.stringify({
+            mcpUrl: "https://docs.example.com/mcp",
+            token: "must-not-be-stored-here",
+          }),
+      ),
+    /Do not store bearer tokens/,
+  );
+  assert.throws(
+    () =>
+      getConfig(
+        {
+          DOCMOST_CONFIG_FILE: "/tmp/docmost-config.json",
+          DOCMOST_PROFILE: "personal",
+        },
+        () =>
+          JSON.stringify({
+            profiles: {
+              personal: {
+                mcpUrl: "https://docs.example.com/mcp",
+              },
+              company: {
+                mcpUrl: "https://docs.company.example.com/mcp",
+                bearerToken: "must-not-be-stored-in-another-profile",
+              },
+            },
+          }),
+      ),
+    /Do not store bearer tokens/,
+  );
+});
+
+test("parseIntegerSetting enforces operational limits", () => {
+  assert.equal(parseIntegerSetting(undefined, "timeout", 10, 1, 20), 10);
+  assert.equal(parseIntegerSetting("15", "timeout", 10, 1, 20), 15);
+  assert.throws(
+    () => parseIntegerSetting("21", "timeout", 10, 1, 20),
+    /between 1 and 20/,
+  );
+  assert.throws(
+    () => parseIntegerSetting("1.5", "timeout", 10, 1, 20),
+    /integer/,
+  );
 });
 
 test("readConfigFile rejects malformed configuration", () => {
@@ -133,7 +250,22 @@ test("initialize is handled locally", async () => {
 
   assert.equal(result.protocolVersion, "2025-11-25");
   assert.equal(result.serverInfo.name, "docmost-knowledge");
+  assert.equal(result.serverInfo.version, "0.2.0");
   assert.deepEqual(result.capabilities, { tools: { listChanged: false } });
+});
+
+test("initialize falls back to the proxy protocol for unknown versions", async () => {
+  const result = await dispatchRequest(
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2024-01-01" },
+    },
+    () => assert.fail("initialize must not be forwarded"),
+  );
+
+  assert.equal(result.protocolVersion, "2025-11-25");
 });
 
 test("notifications are ignored without forwarding", async () => {
@@ -202,6 +334,10 @@ test("callRemote sends a bearer token without exposing it in errors", async () =
     requests[0][1].headers.Authorization,
     "Bearer secret-token-value-for-tests",
   );
+  assert.equal(
+    requests[0][1].headers["MCP-Protocol-Version"],
+    "2025-06-18",
+  );
 
   await assert.rejects(
     callRemote(
@@ -209,10 +345,223 @@ test("callRemote sends a bearer token without exposing it in errors", async () =
       "secret-token-value-for-tests",
       "tools/list",
       {},
-      async () => ({ ok: false, status: 401 }),
+      async () => ({
+        ok: false,
+        status: 401,
+        json: async () => {
+          throw new Error("not json");
+        },
+      }),
     ),
     (error) =>
       error.message === "Docmost MCP authentication or authorization failed" &&
       !error.message.includes("secret-token-value-for-tests"),
   );
+});
+
+test("callRemote preserves safe JSON-RPC errors on non-2xx responses", async () => {
+  await assert.rejects(
+    callRemote(
+      {
+        remoteUrl: "https://docs.example.com/mcp",
+        maxReadRetries: 0,
+      },
+      "secret-token-value-for-tests",
+      "tools/list",
+      {},
+      async () => ({
+        ok: false,
+        status: 429,
+        headers: { get: () => "8" },
+        json: async () => ({
+          error: {
+            code: -32029,
+            message: "MCP rate limit exceeded; retry after 8s",
+          },
+        }),
+      }),
+    ),
+    (error) =>
+      error.code === -32029 &&
+      error.message === "MCP rate limit exceeded; retry after 8s",
+  );
+});
+
+test("callRemote hides JSON error details for authentication failures", async () => {
+  await assert.rejects(
+    callRemote(
+      {
+        remoteUrl: "https://docs.example.com/mcp",
+        maxReadRetries: 0,
+      },
+      "secret-token-value-for-tests",
+      "tools/list",
+      {},
+      async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: {
+            code: -32001,
+            message: "internal authentication detail",
+          },
+        }),
+      }),
+    ),
+    (error) =>
+      error.message === "Docmost MCP authentication or authorization failed",
+  );
+});
+
+test("callRemote redacts credentials echoed by a remote error", async () => {
+  const token = "secret-token-value-for-tests";
+  await assert.rejects(
+    callRemote(
+      {
+        remoteUrl: "https://docs.example.com/mcp",
+        maxReadRetries: 0,
+      },
+      token,
+      "tools/list",
+      {},
+      async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: {
+            code: -32602,
+            message: `bad header Bearer ${token}`,
+          },
+        }),
+      }),
+    ),
+    (error) =>
+      error.message.includes("[redacted-token]") &&
+      !error.message.includes(token),
+  );
+
+  await assert.rejects(
+    callRemote(
+      {
+        remoteUrl: "https://docs.example.com/mcp",
+        maxReadRetries: 0,
+      },
+      token,
+      "tools/list",
+      {},
+      async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: {
+            code: -32602,
+            message: `${"x".repeat(495)}${token}`,
+          },
+        }),
+      }),
+    ),
+    (error) =>
+      !error.message.includes(token) &&
+      !error.message.endsWith(token.slice(0, 5)),
+  );
+});
+
+test("callRemote retries a transient read failure once", async () => {
+  const calls = [];
+  const sleeps = [];
+  const result = await callRemote(
+    {
+      remoteUrl: "https://docs.example.com/mcp",
+      maxReadRetries: 1,
+      retryDelayMs: 25,
+    },
+    "secret-token-value-for-tests",
+    "tools/list",
+    {},
+    async () => {
+      calls.push("fetch");
+      if (calls.length === 1) {
+        return {
+          ok: false,
+          status: 503,
+          json: async () => {
+            throw new Error("not json");
+          },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ result: { tools: [] } }),
+      };
+    },
+    async (delayMs) => sleeps.push(delayMs),
+  );
+
+  assert.deepEqual(result, { tools: [] });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(sleeps, [25]);
+});
+
+test("callRemote never automatically retries a mutation", async () => {
+  let calls = 0;
+  await assert.rejects(
+    callRemote(
+      {
+        remoteUrl: "https://docs.example.com/mcp",
+        maxReadRetries: 3,
+        retryDelayMs: 0,
+      },
+      "secret-token-value-for-tests",
+      "tools/call",
+      {
+        name: "update_page",
+        arguments: {
+          pageId: "11111111-1111-4111-8111-111111111111",
+          expectedUpdatedAt: "2026-07-28T00:00:00.000Z",
+          idempotencyKey: "stable-key",
+        },
+      },
+      async () => {
+        calls += 1;
+        return {
+          ok: false,
+          status: 503,
+          json: async () => {
+            throw new Error("not json");
+          },
+        };
+      },
+      async () => assert.fail("mutation retry delay must not run"),
+    ),
+    /HTTP 503/,
+  );
+  assert.equal(calls, 1);
+});
+
+test("callRemote does not retry after the request timeout is exhausted", async () => {
+  let calls = 0;
+  await assert.rejects(
+    callRemote(
+      {
+        remoteUrl: "https://docs.example.com/mcp",
+        requestTimeoutMs: 1,
+        maxReadRetries: 3,
+        retryDelayMs: 0,
+      },
+      "secret-token-value-for-tests",
+      "tools/list",
+      {},
+      async (_url, options) => {
+        calls += 1;
+        await new Promise((resolve) =>
+          options.signal.addEventListener("abort", resolve, { once: true }),
+        );
+        throw new Error("timed out");
+      },
+      async () => assert.fail("timeout retry delay must not run"),
+    ),
+    /transport request failed/,
+  );
+  assert.equal(calls, 1);
 });

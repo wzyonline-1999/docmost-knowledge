@@ -3,8 +3,13 @@
 
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const {
+  analyzeToolCatalog,
+  formatContractReport,
+} = require("./tool-contract.cjs");
 
 const proxyPath = path.join(__dirname, "docmost-keychain-proxy.cjs");
+const warnOnly = process.argv.includes("--warn");
 const child = spawn(process.execPath, [proxyPath], {
   stdio: ["pipe", "pipe", "pipe"],
 });
@@ -20,37 +25,57 @@ function finish(error) {
   child.kill();
   if (error) {
     process.stderr.write(
-      `Docmost MCP live smoke failed${stderr.trim() ? `: ${stderr.trim()}` : ""}\n`,
+      `Docmost MCP live smoke failed${
+        stderr.trim() ? `: ${stderr.trim()}` : ""
+      }\n`,
     );
     process.exitCode = 1;
     return;
   }
 
-  const responses = stdout
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
+  let responses;
+  try {
+    responses = stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch {
+    process.stderr.write("Docmost MCP live smoke returned invalid JSON\n");
+    process.exitCode = 1;
+    return;
+  }
+
   const initialized = responses.find((response) => response.id === 1);
   const listed = responses.find((response) => response.id === 2);
   if (
     initialized?.result?.serverInfo?.name !== "docmost-knowledge" ||
-    !Array.isArray(listed?.result?.tools) ||
-    listed.result.tools.length === 0
+    !Array.isArray(listed?.result?.tools)
   ) {
     process.stderr.write("Docmost MCP live smoke returned invalid responses\n");
     process.exitCode = 1;
     return;
   }
 
+  const report = analyzeToolCatalog(listed.result.tools);
+  if (!report.compatible && !warnOnly) {
+    process.stderr.write(
+      `Docmost MCP v0.2 contract check failed: ${formatContractReport(report)}\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   process.stdout.write(
-    `Docmost MCP live smoke passed: ${listed.result.tools.length} tools available.\n`,
+    `Docmost MCP live smoke passed: ${report.toolCount} tools available, profile contract ${
+      report.compatible ? "compatible" : "has warnings"
+    }.\n`,
   );
+  if (!report.compatible) {
+    process.stdout.write(`${formatContractReport(report)}\n`);
+  }
 }
 
-const timeout = setTimeout(
-  () => finish(new Error("timeout")),
-  45_000,
-);
+const timeout = setTimeout(() => finish(new Error("timeout")), 120_000);
 
 child.stdout.setEncoding("utf8");
 child.stdout.on("data", (chunk) => {

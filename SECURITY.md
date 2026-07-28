@@ -15,7 +15,14 @@ from examples.
 - Bearer tokens are read from macOS Keychain or `DOCMOST_MCP_TOKEN`.
 - Tokens must never be committed to this repository or stored in the JSON
   configuration file.
-- The proxy accepts only credential-free HTTPS URLs and rejects redirects.
+- Personal and company profiles must use separate server-side tokens and
+  separate Keychain service/account pairs.
+- The proxy accepts only credential-free HTTPS URLs without query parameters
+  and rejects redirects.
+- Automatic retries are restricted to known read-only tools. Mutations are
+  never automatically replayed by the proxy.
+- Remote error bodies are exposed only through bounded JSON-RPC error messages;
+  raw headers, tokens, signed URLs, and response bodies are not logged.
 - Space and operation permissions must be enforced by the remote MCP server.
 
 Revoke the server-side token immediately if you suspect it has been exposed.

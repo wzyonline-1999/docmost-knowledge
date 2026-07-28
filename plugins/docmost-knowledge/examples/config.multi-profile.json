@@ -1,0 +1,18 @@
+{
+  "defaultProfile": "personal",
+  "requestTimeoutMs": 90000,
+  "maxReadRetries": 1,
+  "retryDelayMs": 250,
+  "profiles": {
+    "personal": {
+      "mcpUrl": "https://docs.example.com/mcp",
+      "keychainService": "Docmost MCP Personal",
+      "keychainAccount": "you@example.com"
+    },
+    "company-test": {
+      "mcpUrl": "https://docs.test.example.com/mcp",
+      "keychainService": "Docmost MCP Company Test",
+      "keychainAccount": "you@example.com"
+    }
+  }
+}

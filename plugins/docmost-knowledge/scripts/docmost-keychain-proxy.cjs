@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
+const { isRetrySafe } = require("./tool-contract.cjs");
 
 const DEFAULT_CONFIG_PATH = path.join(
   os.homedir(),
@@ -13,8 +14,19 @@ const DEFAULT_CONFIG_PATH = path.join(
   "docmost-knowledge",
   "config.json",
 );
-const REQUEST_TIMEOUT_MS = 30_000;
-const SERVER_VERSION = "0.1.0";
+const DEFAULT_REQUEST_TIMEOUT_MS = 90_000;
+const DEFAULT_MAX_READ_RETRIES = 1;
+const DEFAULT_RETRY_DELAY_MS = 250;
+const MAX_REQUEST_TIMEOUT_MS = 300_000;
+const SERVER_VERSION = "0.2.0";
+const PROXY_PROTOCOL_VERSION = "2025-11-25";
+const REMOTE_PROTOCOL_VERSION = "2025-06-18";
+const SUPPORTED_PROTOCOL_VERSIONS = new Set([
+  PROXY_PROTOCOL_VERSION,
+  REMOTE_PROTOCOL_VERSION,
+  "2025-03-26",
+]);
+const RETRYABLE_HTTP_STATUSES = new Set([502, 503, 504]);
 
 const ErrorCode = Object.freeze({
   ParseError: -32700,
@@ -27,10 +39,11 @@ const ErrorCode = Object.freeze({
 let remoteRequestId = 0;
 
 class RpcError extends Error {
-  constructor(code, message) {
+  constructor(code, message, options = {}) {
     super(message);
     this.name = "RpcError";
     this.code = code;
+    this.retryable = options.retryable === true;
   }
 }
 
@@ -38,10 +51,7 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function readConfigFile(
-  configPath,
-  readFile = fs.readFileSync,
-) {
+function readConfigFile(configPath, readFile = fs.readFileSync) {
   let source;
   try {
     source = readFile(configPath, "utf8");
@@ -65,10 +75,13 @@ function readConfigFile(
 function getConfig(env = process.env, readFile = fs.readFileSync) {
   const configPath = env.DOCMOST_CONFIG_FILE || DEFAULT_CONFIG_PATH;
   const fileConfig = readConfigFile(configPath, readFile);
-  const remoteUrlValue = env.DOCMOST_MCP_URL || fileConfig.mcpUrl;
+  const { profileName, profile } = resolveProfile(fileConfig, env);
+  rejectStoredToken(fileConfig);
+
+  const remoteUrlValue = env.DOCMOST_MCP_URL || profile.mcpUrl;
   if (typeof remoteUrlValue !== "string" || !remoteUrlValue.trim()) {
     throw new Error(
-      "Set DOCMOST_MCP_URL or mcpUrl in the Docmost Knowledge config file",
+      "Set DOCMOST_MCP_URL or mcpUrl for the selected Docmost profile",
     );
   }
 
@@ -82,16 +95,123 @@ function getConfig(env = process.env, readFile = fs.readFileSync) {
     remoteUrl.protocol !== "https:" ||
     remoteUrl.username ||
     remoteUrl.password ||
+    remoteUrl.search ||
     remoteUrl.hash
   ) {
-    throw new Error("Docmost MCP URL must be a credential-free HTTPS URL");
+    throw new Error(
+      "Docmost MCP URL must be a credential-free HTTPS URL without query or fragment",
+    );
   }
 
   return {
+    profileName,
     remoteUrl: remoteUrl.toString(),
-    keychainService: env.DOCMOST_KEYCHAIN_SERVICE || fileConfig.keychainService,
-    keychainAccount: env.DOCMOST_KEYCHAIN_ACCOUNT || fileConfig.keychainAccount,
+    keychainService: optionalString(
+      env.DOCMOST_KEYCHAIN_SERVICE || profile.keychainService,
+    ),
+    keychainAccount: optionalString(
+      env.DOCMOST_KEYCHAIN_ACCOUNT || profile.keychainAccount,
+    ),
+    requestTimeoutMs: parseIntegerSetting(
+      env.DOCMOST_REQUEST_TIMEOUT_MS ?? profile.requestTimeoutMs,
+      "requestTimeoutMs",
+      DEFAULT_REQUEST_TIMEOUT_MS,
+      1_000,
+      MAX_REQUEST_TIMEOUT_MS,
+    ),
+    maxReadRetries: parseIntegerSetting(
+      env.DOCMOST_MAX_READ_RETRIES ?? profile.maxReadRetries,
+      "maxReadRetries",
+      DEFAULT_MAX_READ_RETRIES,
+      0,
+      3,
+    ),
+    retryDelayMs: parseIntegerSetting(
+      env.DOCMOST_RETRY_DELAY_MS ?? profile.retryDelayMs,
+      "retryDelayMs",
+      DEFAULT_RETRY_DELAY_MS,
+      0,
+      5_000,
+    ),
   };
+}
+
+function resolveProfile(fileConfig, env) {
+  if (fileConfig.profiles === undefined) {
+    return {
+      profileName: optionalString(env.DOCMOST_PROFILE) || "default",
+      profile: fileConfig,
+    };
+  }
+  if (!isObject(fileConfig.profiles)) {
+    throw new Error("Docmost Knowledge profiles must contain an object");
+  }
+
+  const profileNames = Object.keys(fileConfig.profiles);
+  const selectedProfile =
+    optionalString(env.DOCMOST_PROFILE) ||
+    optionalString(fileConfig.defaultProfile) ||
+    (profileNames.length === 1 ? profileNames[0] : undefined);
+  if (!selectedProfile) {
+    throw new Error(
+      "Set DOCMOST_PROFILE or defaultProfile when multiple profiles exist",
+    );
+  }
+
+  const selectedConfig = fileConfig.profiles[selectedProfile];
+  if (!isObject(selectedConfig)) {
+    throw new Error(`Unknown Docmost Knowledge profile: ${selectedProfile}`);
+  }
+
+  const {
+    profiles: _profiles,
+    defaultProfile: _defaultProfile,
+    ...sharedConfig
+  } = fileConfig;
+  return {
+    profileName: selectedProfile,
+    profile: { ...sharedConfig, ...selectedConfig },
+  };
+}
+
+function rejectStoredToken(fileConfig) {
+  const queue = [fileConfig];
+  const forbiddenKeys = new Set(["token", "mcptoken", "bearertoken"]);
+
+  while (queue.length > 0) {
+    const candidate = queue.pop();
+    if (!isObject(candidate)) continue;
+
+    for (const [key, value] of Object.entries(candidate)) {
+      if (forbiddenKeys.has(key.toLowerCase())) {
+        throw new Error(
+          "Do not store bearer tokens in the Docmost Knowledge config file",
+        );
+      }
+      if (isObject(value)) queue.push(value);
+    }
+  }
+}
+
+function optionalString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function parseIntegerSetting(value, name, fallback, minimum, maximum) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < minimum ||
+    parsed > maximum
+  ) {
+    throw new Error(
+      `${name} must be an integer between ${minimum} and ${maximum}`,
+    );
+  }
+  return parsed;
 }
 
 function readTokenFromKeychain(config, exec = execFileSync) {
@@ -119,11 +239,7 @@ function readTokenFromKeychain(config, exec = execFileSync) {
   return token;
 }
 
-function resolveToken(
-  config,
-  env = process.env,
-  exec = execFileSync,
-) {
+function resolveToken(config, env = process.env, exec = execFileSync) {
   const environmentToken = env.DOCMOST_MCP_TOKEN?.trim();
   if (environmentToken) {
     if (environmentToken.length < 20) {
@@ -146,17 +262,47 @@ async function callRemote(
   method,
   params,
   fetchImpl = globalThis.fetch,
+  sleep = defaultSleep,
 ) {
+  const retries = isRetrySafe(method, params)
+    ? (config.maxReadRetries ?? DEFAULT_MAX_READ_RETRIES)
+    : 0;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await callRemoteOnce(config, token, method, params, fetchImpl);
+    } catch (error) {
+      if (
+        !(error instanceof RpcError) ||
+        !error.retryable ||
+        attempt >= retries
+      ) {
+        throw error;
+      }
+      await sleep(
+        (config.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS) * (attempt + 1),
+      );
+    }
+  }
+
+  throw new RpcError(ErrorCode.InternalError, "Docmost MCP request failed");
+}
+
+async function callRemoteOnce(config, token, method, params, fetchImpl) {
+  const signal = AbortSignal.timeout(
+    config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+  );
   let response;
   try {
     response = await fetchImpl(config.remoteUrl, {
       method: "POST",
       redirect: "error",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal,
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
+        "MCP-Protocol-Version": REMOTE_PROTOCOL_VERSION,
         "User-Agent": `docmost-knowledge-codex-plugin/${SERVER_VERSION}`,
       },
       body: JSON.stringify({
@@ -170,36 +316,35 @@ async function callRemote(
     throw new RpcError(
       ErrorCode.InternalError,
       "Docmost MCP transport request failed",
+      { retryable: !signal.aborted },
     );
-  }
-
-  if (!response.ok) {
-    const message =
-      response.status === 401 || response.status === 403
-        ? "Docmost MCP authentication or authorization failed"
-        : `Docmost MCP returned HTTP ${response.status}`;
-    throw new RpcError(ErrorCode.InternalError, message);
   }
 
   let payload;
   try {
     payload = await response.json();
   } catch {
+    if (!response.ok) {
+      throw createHttpError(response);
+    }
     throw new RpcError(
       ErrorCode.InternalError,
       "Docmost MCP returned an invalid JSON response",
     );
   }
 
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw createHttpError(response);
+    }
+    if (isObject(payload?.error)) {
+      throw createPayloadError(payload.error, response, token);
+    }
+    throw createHttpError(response);
+  }
+
   if (isObject(payload.error)) {
-    const code = Number.isInteger(payload.error.code)
-      ? payload.error.code
-      : ErrorCode.InternalError;
-    const message =
-      typeof payload.error.message === "string"
-        ? payload.error.message.slice(0, 500)
-        : "Docmost MCP request failed";
-    throw new RpcError(code, message);
+    throw createPayloadError(payload.error, response, token);
   }
   if (!isObject(payload.result)) {
     throw new RpcError(
@@ -208,6 +353,63 @@ async function callRemote(
     );
   }
   return payload.result;
+}
+
+function createPayloadError(error, response, token) {
+  const code = Number.isInteger(error.code)
+    ? error.code
+    : ErrorCode.InternalError;
+  let message =
+    typeof error.message === "string"
+      ? sanitizeRemoteMessage(error.message, token)
+      : "Docmost MCP request failed";
+  if (response.status === 429 && !/retry/i.test(message)) {
+    const retryAfter = response.headers?.get?.("retry-after");
+    if (retryAfter) message = `${message}; retry after ${retryAfter}`;
+  }
+  return new RpcError(code, message, {
+    retryable: RETRYABLE_HTTP_STATUSES.has(response.status),
+  });
+}
+
+function sanitizeRemoteMessage(message, token) {
+  let sanitized = String(message);
+  if (token) {
+    sanitized = sanitized.split(token).join("[redacted-token]");
+  }
+  sanitized = sanitized.replace(
+    /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi,
+    "Bearer [redacted-token]",
+  );
+  return sanitized.slice(0, 500);
+}
+
+function createHttpError(response) {
+  const status = Number(response.status);
+  if (status === 401 || status === 403) {
+    return new RpcError(
+      ErrorCode.InternalError,
+      "Docmost MCP authentication or authorization failed",
+    );
+  }
+  if (status === 429) {
+    const retryAfter = response.headers?.get?.("retry-after");
+    return new RpcError(
+      -32029,
+      `Docmost MCP rate limit exceeded${
+        retryAfter ? `; retry after ${retryAfter}` : ""
+      }`,
+    );
+  }
+  return new RpcError(
+    ErrorCode.InternalError,
+    `Docmost MCP returned HTTP ${status}`,
+    { retryable: RETRYABLE_HTTP_STATUSES.has(status) },
+  );
+}
+
+function defaultSleep(delayMs) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 async function dispatchRequest(message, forward) {
@@ -227,10 +429,9 @@ async function dispatchRequest(message, forward) {
     case "initialize": {
       const requestedVersion = message.params?.protocolVersion;
       return {
-        protocolVersion:
-          typeof requestedVersion === "string"
-            ? requestedVersion
-            : "2025-11-25",
+        protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.has(requestedVersion)
+          ? requestedVersion
+          : PROXY_PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
         serverInfo: {
           name: "docmost-knowledge",
@@ -337,14 +538,17 @@ if (require.main === module) {
   });
 } else {
   module.exports = {
+    DEFAULT_CONFIG_PATH,
     ErrorCode,
     RpcError,
     callRemote,
     dispatchRequest,
     getConfig,
     handleLine,
+    parseIntegerSetting,
     readConfigFile,
     readTokenFromKeychain,
+    resolveProfile,
     resolveToken,
     serializeError,
     serializeSuccess,
