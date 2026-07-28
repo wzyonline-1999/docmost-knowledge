@@ -554,9 +554,8 @@ test("callRemote does not retry after the request timeout is exhausted", async (
       {},
       async (_url, options) => {
         calls += 1;
-        await new Promise((resolve) =>
-          options.signal.addEventListener("abort", resolve, { once: true }),
-        );
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.equal(options.signal.aborted, true);
         throw new Error("timed out");
       },
       async () => assert.fail("timeout retry delay must not run"),
