@@ -5,7 +5,7 @@
 | Goal | Preferred sequence |
 | --- | --- |
 | Discover accessible areas | `list_spaces` |
-| Browse a space | `list_pages` with explicit pagination |
+| Browse one tree level | `list_pages` with a parent and explicit pagination |
 | Find exact names or IDs | `search_docs` in `keyword` mode |
 | Find concepts or related notes | `search_docs` in `hybrid` mode |
 | Search inside one page subtree | `search_docs` with that page's `rootPageId` |
@@ -22,18 +22,62 @@ Before creating a page, search the selected space for the proposed title and
 subject. If a matching page exists, read it and choose update or append. Do not
 create near-duplicate pages merely because wording differs.
 
-Every create, update, or append call requires a fresh idempotency key. For
-updates and appends:
+Every create, update, or append call requires an idempotency key. A key
+identifies one immutable argument set:
+
+- Reuse the key only after a transport interruption when every argument is
+  unchanged.
+- Generate a new key after changing content, title, icon, parent,
+  `expectedUpdatedAt`, or any other argument.
+- Never share a key across tools, pages, or batch items.
+
+For updates and appends:
 
 1. Read the current page.
 2. Preserve unrelated sections and formatting.
 3. Always pass the returned `updatedAt` as `expectedUpdatedAt`.
-4. Reuse the same idempotency key if a transport retry is necessary.
-5. Re-read the page after mutation when correctness matters.
+4. Submit the mutation with a fresh idempotency key.
+5. Reuse that key only for an exact transport retry.
+6. Re-read the page after every content mutation.
+7. Compare headings, emphasis, lists, tables, links, and the intended
+   destination before declaring the write verified.
 
 If the server reports a conflict, do not replace `expectedUpdatedAt` blindly.
 Read the new version, reconcile the user's requested change, and ask for
-confirmation when concurrent edits would be overwritten.
+confirmation when concurrent edits would be overwritten. Because the
+reconciled request contains a new `expectedUpdatedAt`, it must also contain a
+new idempotency key.
+
+For portable Markdown, separate closing emphasis from following prose with
+whitespace (`**标签：** 正文`). The server tolerates punctuation-ended bold text
+next to CJK prose, but explicit spacing remains clearer across Markdown
+renderers. When a named parent cannot be found, do not silently create at the
+space root.
+
+## Templates
+
+Prefer a published template when the requested page is repetitive or follows a
+known structure:
+
+1. Use `list_templates` with a query, space, scope, or tags to find candidates.
+2. Read the selected immutable version with `get_template`; follow its purpose,
+   usage guidance, and input schema.
+3. Call `render_template` to validate variables and preview the title and body.
+4. Call `instantiate_template` with the intended `targetSpaceId`, optional
+   `parentPageId`, and a fresh idempotency key.
+5. Read the created page back before reporting success.
+
+Do not invent missing variables or silently redirect the page to another space
+or parent. Pin the returned template version when reproducibility matters.
+Rendering is read-only; instantiation creates a page and must never be retried
+automatically after an ambiguous response.
+
+For template authoring, `create_template` creates a draft. Use
+`update_template` with the latest `updatedAt`, then `publish_template` to create
+an immutable published version. Treat every changed draft or publication call
+as a new request with a new idempotency key. Require explicit confirmation
+immediately before `archive_template` or `delete_template`; pass the latest
+`updatedAt` as `expectedUpdatedAt` and `confirm: true` only after confirmation.
 
 ## Versions
 

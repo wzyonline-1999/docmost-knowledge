@@ -18,10 +18,51 @@ test("plugin and package versions stay aligned", () => {
   const packageJson = readJson("package.json");
 
   assert.equal(manifest.name, "docmost-knowledge");
-  assert.equal(manifest.version, "0.2.0");
+  assert.equal(manifest.version, "0.3.0");
   assert.equal(packageJson.version, manifest.version);
   assert.equal(manifest.mcpServers, "./.mcp.json");
   assert.ok(manifest.interface.defaultPrompt.length <= 3);
+});
+
+test("mutation guidance distinguishes exact retries from changed requests", () => {
+  const skill = fs.readFileSync(
+    path.join(pluginRoot, "skills/docmost-knowledge/SKILL.md"),
+    "utf8",
+  );
+  const operations = fs.readFileSync(
+    path.join(
+      pluginRoot,
+      "skills/docmost-knowledge/references/operations.md",
+    ),
+    "utf8",
+  );
+
+  assert.match(skill, /unchanged\s+arguments/);
+  assert.match(skill, /read the page back in Markdown/);
+  assert.match(operations, /new `expectedUpdatedAt`/);
+  assert.match(operations, /new idempotency key/);
+  assert.match(operations, /do not silently create at the\s+space root/);
+});
+
+test("template guidance covers discovery, preview, and destructive safety", () => {
+  const skill = fs.readFileSync(
+    path.join(pluginRoot, "skills/docmost-knowledge/SKILL.md"),
+    "utf8",
+  );
+  const operations = fs.readFileSync(
+    path.join(
+      pluginRoot,
+      "skills/docmost-knowledge/references/operations.md",
+    ),
+    "utf8",
+  );
+
+  assert.match(skill, /`list_templates`/);
+  assert.match(skill, /`render_template`/);
+  assert.match(skill, /`instantiate_template`/);
+  assert.match(operations, /immutable published version/);
+  assert.match(operations, /`archive_template` or `delete_template`/);
+  assert.match(operations, /must never be retried\s+automatically/);
 });
 
 test("MCP manifest points to existing scripts with sufficient timeout", () => {

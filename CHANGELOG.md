@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0 - 2026-08-05
+
+- Added the nine template MCP tools to the strict server contract.
+- Added safe retry classification for template reads while keeping every
+  template mutation single-attempt.
+- Added AI-first template discovery, preview, instantiation, authoring,
+  publication, archival, and deletion guidance.
+- Added contract checks for template optimistic concurrency and destructive
+  confirmation requirements.
+- Clarified that an idempotency key can be reused only for an exact retry with
+  unchanged arguments.
+- Added conflict recovery guidance requiring a fresh read, reconciliation, and
+  a new key for the changed request.
+- Added mandatory write-after-read checks before reporting formatting as
+  verified.
+- Added Markdown emphasis and destination lookup guidance to prevent escaped
+  labels and silent root-level fallbacks.
+
 ## 0.2.0 - 2026-07-28
 
 - Added named personal and company profiles with isolated endpoints and

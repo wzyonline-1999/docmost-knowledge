@@ -1,5 +1,20 @@
 "use strict";
 
+const TEMPLATE_READ_TOOLS = Object.freeze([
+  "list_templates",
+  "get_template",
+  "render_template",
+]);
+
+const TEMPLATE_MUTATION_TOOLS = Object.freeze([
+  "instantiate_template",
+  "create_template",
+  "update_template",
+  "publish_template",
+  "archive_template",
+  "delete_template",
+]);
+
 const REQUIRED_TOOLS = Object.freeze([
   "list_spaces",
   "list_pages",
@@ -28,6 +43,8 @@ const REQUIRED_TOOLS = Object.freeze([
   "pause_index_job",
   "resume_index_job",
   "cancel_index_job",
+  ...TEMPLATE_READ_TOOLS,
+  ...TEMPLATE_MUTATION_TOOLS,
 ]);
 
 const MUTATION_TOOLS = new Set([
@@ -46,6 +63,21 @@ const MUTATION_TOOLS = new Set([
   "pause_index_job",
   "resume_index_job",
   "cancel_index_job",
+  ...TEMPLATE_MUTATION_TOOLS,
+]);
+
+const EXPECTED_UPDATED_AT_TOOLS = new Set([
+  "update_page",
+  "append_page",
+  "update_template",
+  "publish_template",
+  "archive_template",
+  "delete_template",
+]);
+
+const CONFIRMATION_TOOLS = new Set([
+  "archive_template",
+  "delete_template",
 ]);
 
 function isObject(value) {
@@ -96,10 +128,17 @@ function analyzeToolCatalog(tools) {
     }
   }
 
-  for (const name of ["update_page", "append_page"]) {
+  for (const name of EXPECTED_UPDATED_AT_TOOLS) {
     const tool = byName.get(name);
     if (tool && !requiresProperty(tool, "expectedUpdatedAt")) {
       issues.push(`${name} must require expectedUpdatedAt`);
+    }
+  }
+
+  for (const name of CONFIRMATION_TOOLS) {
+    const tool = byName.get(name);
+    if (tool && !requiresProperty(tool, "confirm")) {
+      issues.push(`${name} must require confirm`);
     }
   }
 
@@ -139,8 +178,12 @@ function isRetrySafe(method, params) {
 }
 
 module.exports = {
+  CONFIRMATION_TOOLS,
+  EXPECTED_UPDATED_AT_TOOLS,
   MUTATION_TOOLS,
   REQUIRED_TOOLS,
+  TEMPLATE_MUTATION_TOOLS,
+  TEMPLATE_READ_TOOLS,
   analyzeToolCatalog,
   formatContractReport,
   isRetrySafe,

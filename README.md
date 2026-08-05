@@ -1,7 +1,7 @@
 # Docmost Knowledge
 
-An open-source Codex plugin for searching and maintaining a private Docmost
-knowledge base through a permission-scoped MCP endpoint.
+An open-source Codex plugin for searching, templating, and maintaining a
+private Docmost knowledge base through a permission-scoped MCP endpoint.
 
 The plugin gives Codex operational guidance for knowledge work and runs a
 small local stdio proxy. The proxy reads a bearer token from macOS Keychain or
@@ -18,12 +18,14 @@ an environment variable, then forwards MCP requests over HTTPS.
 - Keyword, semantic, and hybrid search, including one page subtree
 - Page creation, updates, append operations, and deletion safeguards with
   mandatory idempotency and optimistic concurrency
+- AI-first published-template discovery, preview, instantiation, authoring,
+  publication, archival, and deletion
 - Version inspection, comparison, and confirmed restoration
 - Attachment listing, upload, download, and confirmed deletion
 - Vector-index workflows exposed by the compatible server
 - Personal and company profiles with isolated endpoints and Keychain entries
 - Safe retry of known read-only tools across transient gateway failures
-- A strict v0.2 server-contract doctor and live smoke test
+- A strict v0.3 server-contract doctor and live smoke test
 - Local credential handling without storing secrets in the repository
 
 All authorization decisions remain on the Docmost server. The plugin never
@@ -119,14 +121,15 @@ configured server that points to the same profile as the installed plugin.
 The configured endpoint must accept JSON-RPC 2.0 over HTTPS `POST`, authenticate
 with an `Authorization: Bearer ...` header, and implement `tools/list` and
 `tools/call`. It should enforce token permissions independently for every
-space, operation, version, attachment, and vector-search action.
+space, operation, template, version, attachment, and vector-search action.
 
-The v0.2 contract expects all 27 page, history, attachment, search, and
-vector-job tools. It also verifies:
+The v0.3 contract expects all 36 page, template, history, attachment, search,
+and vector-job tools. It also verifies:
 
 - `search_docs` and `semantic_search_docs` support `rootPageId`
 - every mutation requires `idempotencyKey`
-- `update_page` and `append_page` require `expectedUpdatedAt`
+- page and template updates require `expectedUpdatedAt`
+- template archival and deletion require explicit confirmation
 
 The local proxy handles `initialize` and `ping`, rejects redirects, validates
 remote responses, applies a configurable 90-second default timeout, preserves
@@ -138,7 +141,7 @@ Developer API. A load balancer and multiple Docmost application replicas are
 transparent to the plugin as long as they share the same server-side
 PostgreSQL, Redis, object storage, secrets, and permission model.
 
-## Upgrade from v0.1
+## Upgrade
 
 The plugin registers an MCP server named `docmost-knowledge`. Remove an older
 manual `[mcp_servers.docmost]` entry when it invokes a hard-coded proxy for the
@@ -148,6 +151,10 @@ the wrong server.
 Existing single-profile JSON configuration continues to work. Convert it to
 `profiles` only when you need separate personal, company-test, or company
 production endpoints.
+
+Upgrading from v0.2 requires no local configuration change. The remote Docmost
+server must expose the nine v0.3 template tools for the strict doctor and live
+smoke checks to pass.
 
 ## Development
 
@@ -159,7 +166,7 @@ npm test
 ```
 
 Validate local configuration, Keychain access, the remote tool catalog, and the
-strict v0.2 contract:
+strict v0.3 contract:
 
 ```bash
 npm run doctor
@@ -173,7 +180,7 @@ npm run test:live
 ```
 
 During a staged server upgrade, append `-- --warn` to either command to report
-missing v0.2 capabilities without failing the process.
+missing v0.3 capabilities without failing the process.
 
 ## License
 

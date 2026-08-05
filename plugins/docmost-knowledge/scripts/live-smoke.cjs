@@ -59,7 +59,7 @@ function finish(error) {
   const report = analyzeToolCatalog(listed.result.tools);
   if (!report.compatible && !warnOnly) {
     process.stderr.write(
-      `Docmost MCP v0.2 contract check failed: ${formatContractReport(report)}\n`,
+      `Docmost MCP v0.3 contract check failed: ${formatContractReport(report)}\n`,
     );
     process.exitCode = 1;
     return;

@@ -24,12 +24,12 @@ async function main() {
   if (!report.compatible) {
     const details = formatContractReport(report);
     if (!warnOnly) {
-      throw new Error(`Docmost MCP v0.2 contract check failed: ${details}`);
+      throw new Error(`Docmost MCP v0.3 contract check failed: ${details}`);
     }
     process.stdout.write(`Contract warnings: ${details}\n`);
     return;
   }
-  process.stdout.write("Docmost MCP v0.2 contract: compatible\n");
+  process.stdout.write("Docmost MCP v0.3 contract: compatible\n");
 }
 
 main().catch((error) => {
