@@ -37,6 +37,38 @@ function createCompatibleCatalog() {
     if (name === "search_docs" || name === "semantic_search_docs") {
       properties.rootPageId = { type: "string", format: "uuid" };
     }
+    if (name === "get_page_tree") {
+      properties.rootPageId = { type: "string", format: "uuid" };
+    }
+    if (name === "preview_page_move") {
+      properties.pageId = { type: "string", format: "uuid" };
+      properties.targetParentPageId = { type: ["string", "null"] };
+      properties.placement = {
+        type: "string",
+        enum: ["first", "last", "before", "after"],
+      };
+      properties.referencePageId = { type: "string", format: "uuid" };
+      required.push("pageId", "targetParentPageId", "placement");
+    }
+    if (name === "move_page") {
+      properties.movePlanToken = { type: "string" };
+      required.push("movePlanToken");
+    }
+    if (name === "move_pages") {
+      properties.moves = {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            movePlanToken: { type: "string" },
+            expectedUpdatedAt: { type: "string", format: "date-time" },
+          },
+          required: ["movePlanToken", "expectedUpdatedAt"],
+          additionalProperties: false,
+        },
+      };
+      required.push("moves");
+    }
     return {
       name,
       inputSchema: {
@@ -49,7 +81,7 @@ function createCompatibleCatalog() {
   });
 }
 
-test("analyzeToolCatalog accepts the full v0.3 server contract", () => {
+test("analyzeToolCatalog accepts the full v0.4 server contract", () => {
   const report = analyzeToolCatalog(createCompatibleCatalog());
 
   assert.equal(report.compatible, true);
@@ -87,6 +119,14 @@ test("analyzeToolCatalog identifies missing tools and hardened fields", () => {
     archiveTemplate.inputSchema.required.filter(
       (field) => field !== "confirm",
     );
+  const previewMove = catalog.find(
+    (tool) => tool.name === "preview_page_move",
+  );
+  previewMove.inputSchema.required = previewMove.inputSchema.required.filter(
+    (field) => field !== "placement",
+  );
+  const movePages = catalog.find((tool) => tool.name === "move_pages");
+  movePages.inputSchema.properties.moves.items.required = ["movePlanToken"];
 
   const report = analyzeToolCatalog(catalog);
   const summary = formatContractReport(report);
@@ -99,6 +139,8 @@ test("analyzeToolCatalog identifies missing tools and hardened fields", () => {
   assert.match(summary, /create_template must require idempotencyKey/);
   assert.match(summary, /update_template must require expectedUpdatedAt/);
   assert.match(summary, /archive_template must require confirm/);
+  assert.match(summary, /preview_page_move must require placement/);
+  assert.match(summary, /move_pages items must require expectedUpdatedAt/);
 });
 
 test("isRetrySafe retries only known read operations", () => {
@@ -111,11 +153,26 @@ test("isRetrySafe retries only known read operations", () => {
     isRetrySafe("tools/call", { name: "render_template", arguments: {} }),
     true,
   );
+  assert.equal(
+    isRetrySafe("tools/call", { name: "get_page_tree", arguments: {} }),
+    true,
+  );
+  assert.equal(
+    isRetrySafe("tools/call", {
+      name: "preview_page_move",
+      arguments: {},
+    }),
+    true,
+  );
   for (const name of TEMPLATE_READ_TOOLS) {
     assert.equal(isRetrySafe("tools/call", { name, arguments: {} }), true);
   }
   assert.equal(
     isRetrySafe("tools/call", { name: "update_page", arguments: {} }),
+    false,
+  );
+  assert.equal(
+    isRetrySafe("tools/call", { name: "move_pages", arguments: {} }),
     false,
   );
   assert.equal(

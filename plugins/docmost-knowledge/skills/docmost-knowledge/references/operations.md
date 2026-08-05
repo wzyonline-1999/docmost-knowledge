@@ -6,6 +6,7 @@
 | --- | --- |
 | Discover accessible areas | `list_spaces` |
 | Browse one tree level | `list_pages` with a parent and explicit pagination |
+| Inspect an ordered subtree | `get_page_tree` with bounded depth and limit |
 | Find exact names or IDs | `search_docs` in `keyword` mode |
 | Find concepts or related notes | `search_docs` in `hybrid` mode |
 | Search inside one page subtree | `search_docs` with that page's `rootPageId` |
@@ -53,6 +54,40 @@ whitespace (`**标签：** 正文`). The server tolerates punctuation-ended bold
 next to CJK prose, but explicit spacing remains clearer across Markdown
 renderers. When a named parent cannot be found, do not silently create at the
 space root.
+
+## Move and organize pages
+
+Docmost directories are pages with children. Use the same move tools for a
+leaf page, a directory, or an entire subtree. Moves are limited to one space;
+do not simulate a cross-space move with these tools.
+
+For one move:
+
+1. Use `get_page_tree` to resolve the source, target parent, and optional
+   sibling reference by UUID. Use `first`, `last`, `before`, or `after`; never
+   calculate or send a fractional `position` value.
+2. Call `preview_page_move` with an explicit `targetParentPageId`, using `null`
+   only when the user selected the space root. Supply `referencePageId` only
+   for `before` or `after`.
+3. Review `beforePath`, `afterPath`, subtree size, permission-inheritance risk,
+   and `requiresConfirmation`. Obtain explicit confirmation when requested.
+4. Call `move_page` immediately with the returned `movePlanToken`, exact
+   `expectedUpdatedAt`, a fresh idempotency key, and `confirm: true` when the
+   preview requires it.
+5. On an expired plan or conflict, inspect the tree again and create a new
+   preview. Never edit a signed plan or reuse its idempotency key for a changed
+   destination.
+
+For a batch, preview every page separately, then call `move_pages` once with
+the array of `{movePlanToken, expectedUpdatedAt}` items, one idempotency key for
+the exact batch, and `confirm: true`. The server applies items in array order
+inside one database transaction. A moved page used as a `before` or `after`
+reference must appear earlier in the array. Duplicate pages, stale versions,
+invalid targets, permission failures, or a final-tree cycle roll back the whole
+batch; there are no partial successes.
+
+Moving within a space changes directory-scoped search immediately through the
+page hierarchy. Do not request a vector reindex solely because a page moved.
 
 ## Templates
 
@@ -114,3 +149,5 @@ repeatedly submitting the same operation with new keys.
 - Stop on the first mutation failure and return a completed/pending summary.
 - Use one idempotency key per item and operation; never share one key across
   different pages.
+- Treat `move_pages` as the exception: it intentionally uses one idempotency
+  key for the exact atomic batch and rolls back every item on failure.

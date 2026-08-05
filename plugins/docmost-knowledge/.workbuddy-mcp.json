@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "docmost-knowledge": {
-      "command": "node",
+      "command": "${CODEBUDDY_PLUGIN_ROOT}/scripts/run-node",
       "args": [
         "${CODEBUDDY_PLUGIN_ROOT}/scripts/docmost-keychain-proxy.cjs"
       ]

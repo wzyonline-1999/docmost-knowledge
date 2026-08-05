@@ -19,6 +19,8 @@ Keychain or an environment variable, then forwards MCP requests over HTTPS.
 - Keyword, semantic, and hybrid search, including one page subtree
 - Page creation, updates, append operations, and deletion safeguards with
   mandatory idempotency and optimistic concurrency
+- Ordered page-tree inspection plus signed, cycle-safe single and atomic batch
+  moves within a knowledge space
 - AI-first published-template discovery, preview, instantiation, authoring,
   publication, archival, and deletion
 - Version inspection, comparison, and confirmed restoration
@@ -26,7 +28,7 @@ Keychain or an environment variable, then forwards MCP requests over HTTPS.
 - Vector-index workflows exposed by the compatible server
 - Personal and company profiles with isolated endpoints and Keychain entries
 - Safe retry of known read-only tools across transient gateway failures
-- A strict v0.3 server-contract doctor and live smoke test
+- A strict v0.4 server-contract doctor and live smoke test
 - Local credential handling without storing secrets in the repository
 
 All authorization decisions remain on the Docmost server. The plugin never
@@ -66,7 +68,8 @@ install `docmost-knowledge@open-context` and reload plugins:
 
 The WorkBuddy package uses the same `SKILL.md`, MCP proxy, configuration file,
 and Keychain entries as Codex. It has its own `.codebuddy-plugin` manifest and
-MCP launcher so the two clients can resolve their plugin roots correctly.
+MCP launcher so the two clients can resolve their plugin roots and the
+WorkBuddy-managed Node runtime correctly.
 Do not also configure a manual `docmost-knowledge` MCP entry in the same
 client, or the tools will be registered twice.
 
@@ -143,13 +146,16 @@ with an `Authorization: Bearer ...` header, and implement `tools/list` and
 `tools/call`. It should enforce token permissions independently for every
 space, operation, template, version, attachment, and vector-search action.
 
-The v0.3 contract expects all 36 page, template, history, attachment, search,
+The v0.4 contract expects all 40 page, hierarchy, template, history,
+attachment, search,
 and vector-job tools. It also verifies:
 
 - `search_docs` and `semantic_search_docs` support `rootPageId`
+- page hierarchy supports `get_page_tree`, signed `preview_page_move`,
+  concurrency-safe `move_page`, and atomic `move_pages`
 - every mutation requires `idempotencyKey`
-- page and template updates require `expectedUpdatedAt`
-- template archival and deletion require explicit confirmation
+- page moves and page/template updates require `expectedUpdatedAt`
+- batch moves plus template archival and deletion require explicit confirmation
 
 The local proxy handles `initialize` and `ping`, rejects redirects, validates
 remote responses, applies a configurable 90-second default timeout, preserves
@@ -172,10 +178,10 @@ Existing single-profile JSON configuration continues to work. Convert it to
 `profiles` only when you need separate personal, company-test, or company
 production endpoints.
 
-Upgrading from v0.2 requires no local configuration change. Version 0.3.1 adds
-WorkBuddy packaging without changing the v0.3 server contract. The remote
-Docmost server must expose the nine v0.3 template tools for the strict doctor
-and live smoke checks to pass.
+Upgrading from v0.3 requires no local configuration change. Version 0.4 adds
+the four same-space page-tree tools; the remote Docmost server must expose
+them, including signed move previews and atomic batch moves, for the strict
+doctor and live smoke checks to pass.
 
 ## Development
 
@@ -187,7 +193,7 @@ npm test
 ```
 
 Validate local configuration, Keychain access, the remote tool catalog, and the
-strict v0.3 contract:
+strict v0.4 contract:
 
 ```bash
 npm run doctor
@@ -201,7 +207,7 @@ npm run test:live
 ```
 
 During a staged server upgrade, append `-- --warn` to either command to report
-missing v0.3 capabilities without failing the process.
+missing v0.4 capabilities without failing the process.
 
 ## License
 

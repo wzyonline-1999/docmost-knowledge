@@ -19,7 +19,7 @@ test("plugin and package versions stay aligned", () => {
   const packageJson = readJson("package.json");
 
   assert.equal(manifest.name, "docmost-knowledge");
-  assert.equal(manifest.version, "0.3.1");
+  assert.equal(manifest.version, "0.4.0");
   assert.equal(packageJson.version, manifest.version);
   assert.equal(manifest.mcpServers, "./.mcp.json");
   assert.ok(manifest.interface.defaultPrompt.length <= 3);
@@ -66,6 +66,27 @@ test("template guidance covers discovery, preview, and destructive safety", () =
   assert.match(operations, /must never be retried\s+automatically/);
 });
 
+test("page hierarchy guidance requires previewed and atomic moves", () => {
+  const skill = fs.readFileSync(
+    path.join(pluginRoot, "skills/docmost-knowledge/SKILL.md"),
+    "utf8",
+  );
+  const operations = fs.readFileSync(
+    path.join(
+      pluginRoot,
+      "skills/docmost-knowledge/references/operations.md",
+    ),
+    "utf8",
+  );
+
+  assert.match(skill, /`get_page_tree`/);
+  assert.match(skill, /`preview_page_move`/);
+  assert.match(skill, /`move_pages` always requires\s+confirmation/);
+  assert.match(operations, /never\s+calculate or send a fractional `position`/);
+  assert.match(operations, /roll back the whole\s+batch/);
+  assert.match(operations, /Do not request a vector reindex solely/);
+});
+
 test("MCP manifest points to existing scripts with sufficient timeout", () => {
   const mcpManifest = readJson(".mcp.json");
   const server = mcpManifest.mcpServers["docmost-knowledge"];
@@ -96,7 +117,7 @@ test("WorkBuddy manifest uses a portable plugin-root MCP path", () => {
   assert.equal(manifest.version, packageJson.version);
   assert.equal(manifest.skills, "./skills/");
   assert.equal(manifest.mcpServers, "./.workbuddy-mcp.json");
-  assert.equal(server.command, "node");
+  assert.equal(server.command, "${CODEBUDDY_PLUGIN_ROOT}/scripts/run-node");
   assert.deepEqual(server.args, [
     "${CODEBUDDY_PLUGIN_ROOT}/scripts/docmost-keychain-proxy.cjs",
   ]);
@@ -104,6 +125,7 @@ test("WorkBuddy manifest uses a portable plugin-root MCP path", () => {
     fs.existsSync(path.join(pluginRoot, "scripts/docmost-keychain-proxy.cjs")),
     true,
   );
+  assert.equal(fs.existsSync(path.join(pluginRoot, "scripts/run-node")), true);
   assert.equal(marketplace.name, "open-context");
   assert.equal(marketplacePlugin.source, "./plugins/docmost-knowledge");
   assert.equal(marketplacePlugin.version, manifest.version);

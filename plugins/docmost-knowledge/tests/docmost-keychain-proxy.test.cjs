@@ -6,6 +6,7 @@ const test = require("node:test");
 const {
   ErrorCode,
   callRemote,
+  createForward,
   dispatchRequest,
   getConfig,
   handleLine,
@@ -237,6 +238,33 @@ test("resolveToken prefers the environment and falls back to Keychain", () => {
   );
 });
 
+test("createForward keeps the MCP process available after local startup failure", async () => {
+  const { forward, startupError } = createForward(() => {
+    throw new Error("Docmost MCP token is unavailable in macOS Keychain");
+  });
+
+  assert.equal(
+    startupError.message,
+    "Docmost MCP token is unavailable in macOS Keychain",
+  );
+
+  const response = await handleLine(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: {},
+    }),
+    forward,
+  );
+
+  assert.equal(response.error.code, ErrorCode.InternalError);
+  assert.equal(
+    response.error.message,
+    "Docmost MCP token is unavailable in macOS Keychain",
+  );
+});
+
 test("initialize is handled locally", async () => {
   const result = await dispatchRequest(
     {
@@ -250,7 +278,7 @@ test("initialize is handled locally", async () => {
 
   assert.equal(result.protocolVersion, "2025-11-25");
   assert.equal(result.serverInfo.name, "docmost-knowledge");
-  assert.equal(result.serverInfo.version, "0.3.1");
+  assert.equal(result.serverInfo.version, "0.4.0");
   assert.deepEqual(result.capabilities, { tools: { listChanged: false } });
 });
 

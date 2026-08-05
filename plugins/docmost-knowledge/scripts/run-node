@@ -1,0 +1,44 @@
+#!/bin/sh
+# Resolve a host-managed Node runtime before falling back to PATH.
+# WorkBuddy launches custom MCP servers without injecting its Node directory
+# into PATH, even though the managed runtime is available under the user home.
+
+set -eu
+
+if [ -n "${CODEBUDDY_NODE_BIN:-}" ] && [ -x "$CODEBUDDY_NODE_BIN" ]; then
+  exec "$CODEBUDDY_NODE_BIN" "$@"
+fi
+
+resolve_from_extra_paths() (
+  [ -n "${WORKBUDDY_EXTRA_PATHS:-}" ] || exit 1
+  IFS=:
+  for directory in $WORKBUDDY_EXTRA_PATHS; do
+    if [ -n "$directory" ] && [ -x "$directory/node" ]; then
+      printf '%s\n' "$directory/node"
+      exit 0
+    fi
+  done
+  exit 1
+)
+
+node_bin=$(resolve_from_extra_paths || true)
+
+if [ -z "$node_bin" ]; then
+  for candidate in "$HOME"/.workbuddy/binaries/node/versions/*/bin/node; do
+    if [ -x "$candidate" ]; then
+      node_bin=$candidate
+      break
+    fi
+  done
+fi
+
+if [ -z "$node_bin" ]; then
+  node_bin=$(command -v node || true)
+fi
+
+if [ -z "$node_bin" ]; then
+  echo "Docmost MCP: unable to locate a Node.js runtime" >&2
+  exit 127
+fi
+
+exec "$node_bin" "$@"

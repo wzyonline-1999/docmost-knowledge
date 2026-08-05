@@ -18,7 +18,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 90_000;
 const DEFAULT_MAX_READ_RETRIES = 1;
 const DEFAULT_RETRY_DELAY_MS = 250;
 const MAX_REQUEST_TIMEOUT_MS = 300_000;
-const SERVER_VERSION = "0.3.1";
+const SERVER_VERSION = "0.4.0";
 const PROXY_PROTOCOL_VERSION = "2025-11-25";
 const REMOTE_PROTOCOL_VERSION = "2025-06-18";
 const SUPPORTED_PROTOCOL_VERSIONS = new Set([
@@ -412,6 +412,40 @@ function defaultSleep(delayMs) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+function formatStartupError(error) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Docmost MCP local startup failed";
+  return sanitizeRemoteMessage(message);
+}
+
+function createForward(
+  getConfigFn = () => getConfig(),
+  resolveTokenFn = (config) => resolveToken(config),
+  callRemoteFn = callRemote,
+) {
+  try {
+    const config = getConfigFn();
+    const token = resolveTokenFn(config);
+    return {
+      forward: (method, params) => callRemoteFn(config, token, method, params),
+      startupError: null,
+    };
+  } catch (error) {
+    const startupError = new RpcError(
+      ErrorCode.InternalError,
+      formatStartupError(error),
+    );
+    return {
+      forward: async () => {
+        throw startupError;
+      },
+      startupError,
+    };
+  }
+}
+
 async function dispatchRequest(message, forward) {
   if (!isObject(message) || message.jsonrpc !== "2.0") {
     throw new RpcError(ErrorCode.InvalidRequest, "Invalid JSON-RPC request");
@@ -512,10 +546,12 @@ async function handleLine(line, forward) {
 }
 
 async function main() {
-  const config = getConfig();
-  const token = resolveToken(config);
-  const forward = (method, params) =>
-    callRemote(config, token, method, params);
+  const { forward, startupError } = createForward();
+  if (startupError) {
+    process.stderr.write(
+      `Docmost MCP proxy unavailable: ${startupError.message}\n`,
+    );
+  }
   const input = readline.createInterface({
     input: process.stdin,
     crlfDelay: Infinity,
@@ -532,8 +568,7 @@ async function main() {
 
 if (require.main === module) {
   main().catch((error) => {
-    const name = error instanceof Error ? error.name : "Error";
-    process.stderr.write(`Docmost MCP proxy failed (${name})\n`);
+    process.stderr.write(`Docmost MCP proxy failed: ${formatStartupError(error)}\n`);
     process.exitCode = 1;
   });
 } else {
@@ -542,7 +577,9 @@ if (require.main === module) {
     ErrorCode,
     RpcError,
     callRemote,
+    createForward,
     dispatchRequest,
+    formatStartupError,
     getConfig,
     handleLine,
     parseIntegerSetting,

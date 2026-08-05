@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 - 2026-08-05
+
+- Added strict contracts for `get_page_tree`, `preview_page_move`, `move_page`,
+  and atomic `move_pages`.
+- Added AI guidance for resolving hierarchy IDs, using server-owned ordering,
+  reviewing signed move plans, and re-previewing stale operations.
+- Added subtree, inherited-permission, cycle, optimistic-concurrency, and batch
+  rollback safety guidance.
+- Classified tree reads and move previews as retry-safe while keeping all move
+  mutations single-attempt and idempotent.
+- Updated Codex and WorkBuddy manifests to advertise page-tree organization.
+
 ## 0.3.1 - 2026-08-05
 
 - Added a WorkBuddy/CodeBuddy plugin manifest and marketplace entry.

@@ -19,6 +19,10 @@ const REQUIRED_TOOLS = Object.freeze([
   "list_spaces",
   "list_pages",
   "get_page",
+  "get_page_tree",
+  "preview_page_move",
+  "move_page",
+  "move_pages",
   "list_page_versions",
   "get_page_version",
   "diff_page_versions",
@@ -54,6 +58,8 @@ const MUTATION_TOOLS = new Set([
   "create_page",
   "update_page",
   "append_page",
+  "move_page",
+  "move_pages",
   "delete_page",
   "restore_page",
   "reindex_page",
@@ -69,6 +75,7 @@ const MUTATION_TOOLS = new Set([
 const EXPECTED_UPDATED_AT_TOOLS = new Set([
   "update_page",
   "append_page",
+  "move_page",
   "update_template",
   "publish_template",
   "archive_template",
@@ -76,6 +83,7 @@ const EXPECTED_UPDATED_AT_TOOLS = new Set([
 ]);
 
 const CONFIRMATION_TOOLS = new Set([
+  "move_pages",
   "archive_template",
   "delete_template",
 ]);
@@ -93,6 +101,16 @@ function requiresProperty(tool, propertyName) {
     Array.isArray(tool?.inputSchema?.required) &&
     tool.inputSchema.required.includes(propertyName)
   );
+}
+
+function getObjectProperty(tool, propertyName) {
+  const property = tool?.inputSchema?.properties?.[propertyName];
+  return isObject(property) ? property : null;
+}
+
+function getArrayItemSchema(tool, propertyName) {
+  const property = getObjectProperty(tool, propertyName);
+  return isObject(property?.items) ? property.items : null;
 }
 
 function analyzeToolCatalog(tools) {
@@ -146,6 +164,41 @@ function analyzeToolCatalog(tools) {
     const tool = byName.get(name);
     if (tool && !hasProperty(tool, "rootPageId")) {
       issues.push(`${name} must support rootPageId`);
+    }
+  }
+
+  const pageTree = byName.get("get_page_tree");
+  if (pageTree && !hasProperty(pageTree, "rootPageId")) {
+    issues.push("get_page_tree must support rootPageId");
+  }
+
+  const previewMove = byName.get("preview_page_move");
+  for (const field of ["pageId", "targetParentPageId", "placement"]) {
+    if (previewMove && !requiresProperty(previewMove, field)) {
+      issues.push(`preview_page_move must require ${field}`);
+    }
+  }
+  if (previewMove && !hasProperty(previewMove, "referencePageId")) {
+    issues.push("preview_page_move must support referencePageId");
+  }
+
+  const movePage = byName.get("move_page");
+  if (movePage && !requiresProperty(movePage, "movePlanToken")) {
+    issues.push("move_page must require movePlanToken");
+  }
+
+  const movePages = byName.get("move_pages");
+  const moveItem = getArrayItemSchema(movePages, "moves");
+  if (movePages && !requiresProperty(movePages, "moves")) {
+    issues.push("move_pages must require moves");
+  }
+  if (movePages && !moveItem) {
+    issues.push("move_pages must define a moves item schema");
+  } else if (moveItem) {
+    for (const field of ["movePlanToken", "expectedUpdatedAt"]) {
+      if (!requiresProperty({ inputSchema: moveItem }, field)) {
+        issues.push(`move_pages items must require ${field}`);
+      }
     }
   }
 
