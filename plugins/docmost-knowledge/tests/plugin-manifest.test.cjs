@@ -6,6 +6,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const pluginRoot = path.resolve(__dirname, "..");
+const repositoryRoot = path.resolve(pluginRoot, "../..");
 
 function readJson(relativePath) {
   return JSON.parse(
@@ -18,7 +19,7 @@ test("plugin and package versions stay aligned", () => {
   const packageJson = readJson("package.json");
 
   assert.equal(manifest.name, "docmost-knowledge");
-  assert.equal(manifest.version, "0.3.0");
+  assert.equal(manifest.version, "0.3.1");
   assert.equal(packageJson.version, manifest.version);
   assert.equal(manifest.mcpServers, "./.mcp.json");
   assert.ok(manifest.interface.defaultPrompt.length <= 3);
@@ -76,10 +77,44 @@ test("MCP manifest points to existing scripts with sufficient timeout", () => {
   }
 });
 
+test("WorkBuddy manifest uses a portable plugin-root MCP path", () => {
+  const manifest = readJson(".codebuddy-plugin/plugin.json");
+  const packageJson = readJson("package.json");
+  const mcpManifest = readJson(".workbuddy-mcp.json");
+  const marketplace = JSON.parse(
+    fs.readFileSync(
+      path.join(repositoryRoot, ".codebuddy-plugin/marketplace.json"),
+      "utf8",
+    ),
+  );
+  const server = mcpManifest.mcpServers["docmost-knowledge"];
+  const marketplacePlugin = marketplace.plugins.find(
+    (plugin) => plugin.name === "docmost-knowledge",
+  );
+
+  assert.equal(manifest.name, "docmost-knowledge");
+  assert.equal(manifest.version, packageJson.version);
+  assert.equal(manifest.skills, "./skills/");
+  assert.equal(manifest.mcpServers, "./.workbuddy-mcp.json");
+  assert.equal(server.command, "node");
+  assert.deepEqual(server.args, [
+    "${CODEBUDDY_PLUGIN_ROOT}/scripts/docmost-keychain-proxy.cjs",
+  ]);
+  assert.equal(
+    fs.existsSync(path.join(pluginRoot, "scripts/docmost-keychain-proxy.cjs")),
+    true,
+  );
+  assert.equal(marketplace.name, "docmost-knowledge");
+  assert.equal(marketplacePlugin.source, "./plugins/docmost-knowledge");
+  assert.equal(marketplacePlugin.version, manifest.version);
+});
+
 test("plugin source contains no unfinished placeholders", () => {
   const files = [
     ".codex-plugin/plugin.json",
+    ".codebuddy-plugin/plugin.json",
     ".mcp.json",
+    ".workbuddy-mcp.json",
     "package.json",
     "skills/docmost-knowledge/SKILL.md",
   ];

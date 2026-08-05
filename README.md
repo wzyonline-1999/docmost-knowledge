@@ -1,11 +1,12 @@
 # Docmost Knowledge
 
-An open-source Codex plugin for searching, templating, and maintaining a
-private Docmost knowledge base through a permission-scoped MCP endpoint.
+An open-source Codex and WorkBuddy plugin for searching, templating, and
+maintaining a private Docmost knowledge base through a permission-scoped MCP
+endpoint.
 
-The plugin gives Codex operational guidance for knowledge work and runs a
-small local stdio proxy. The proxy reads a bearer token from macOS Keychain or
-an environment variable, then forwards MCP requests over HTTPS.
+The plugin gives Codex and WorkBuddy operational guidance for knowledge work
+and runs a small local stdio proxy. The proxy reads a bearer token from macOS
+Keychain or an environment variable, then forwards MCP requests over HTTPS.
 
 > This community project is not affiliated with Docmost. Stock Docmost does
 > not currently provide the compatible `/mcp` endpoint required by this
@@ -33,13 +34,15 @@ broadens the token's space permissions.
 
 ## Requirements
 
-- Codex with plugin support
+- Codex or Tencent WorkBuddy with plugin support
 - Node.js 20 or newer
 - A credential-free HTTPS MCP endpoint compatible with this plugin
 - A bearer token issued by that server
 - macOS Keychain, or the `DOCMOST_MCP_TOKEN` environment variable
 
 ## Install
+
+### Codex
 
 Add this repository as a Codex marketplace and install its plugin:
 
@@ -49,6 +52,23 @@ codex plugin add docmost-knowledge@docmost-knowledge
 ```
 
 Restart Codex after installation.
+
+### WorkBuddy
+
+Add this GitHub repository as a WorkBuddy/CodeBuddy plugin marketplace, then
+install `docmost-knowledge@docmost-knowledge` and reload plugins:
+
+```bash
+/plugin marketplace add wzyonline-1999/docmost-knowledge
+/plugin install docmost-knowledge@docmost-knowledge
+/reload-plugins
+```
+
+The WorkBuddy package uses the same `SKILL.md`, MCP proxy, configuration file,
+and Keychain entries as Codex. It has its own `.codebuddy-plugin` manifest and
+MCP launcher so the two clients can resolve their plugin roots correctly.
+Do not also configure a manual `docmost-knowledge` MCP entry in the same
+client, or the tools will be registered twice.
 
 ## Configure
 
@@ -152,9 +172,10 @@ Existing single-profile JSON configuration continues to work. Convert it to
 `profiles` only when you need separate personal, company-test, or company
 production endpoints.
 
-Upgrading from v0.2 requires no local configuration change. The remote Docmost
-server must expose the nine v0.3 template tools for the strict doctor and live
-smoke checks to pass.
+Upgrading from v0.2 requires no local configuration change. Version 0.3.1 adds
+WorkBuddy packaging without changing the v0.3 server contract. The remote
+Docmost server must expose the nine v0.3 template tools for the strict doctor
+and live smoke checks to pass.
 
 ## Development
 

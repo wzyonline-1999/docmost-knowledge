@@ -1,6 +1,6 @@
 {
   "name": "docmost-knowledge",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Search, maintain, cite, and use templates in one or more private Docmost knowledge bases through Keychain-authenticated MCP connections.",
   "author": {
     "name": "wzyonline-1999",

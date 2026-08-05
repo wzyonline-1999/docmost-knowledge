@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 - 2026-08-05
+
+- Added a WorkBuddy/CodeBuddy plugin manifest and marketplace entry.
+- Added a WorkBuddy-specific MCP launcher that resolves the bundled proxy with
+  `CODEBUDDY_PLUGIN_ROOT`.
+- Kept the existing Codex package, MCP configuration, profiles, and Keychain
+  credential flow unchanged.
+- Added cross-platform manifest regression coverage and dual-platform install
+  documentation.
+
 ## 0.3.0 - 2026-08-05
 
 - Added the nine template MCP tools to the strict server contract.
