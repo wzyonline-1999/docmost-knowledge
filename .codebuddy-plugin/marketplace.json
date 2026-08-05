@@ -1,6 +1,6 @@
 {
-  "name": "docmost-knowledge",
-  "description": "Docmost Knowledge plugins for Codex and WorkBuddy.",
+  "name": "open-context",
+  "description": "Open Context plugin marketplace for Codex and WorkBuddy.",
   "owner": {
     "name": "wzyonline-1999",
     "url": "https://github.com/wzyonline-1999"

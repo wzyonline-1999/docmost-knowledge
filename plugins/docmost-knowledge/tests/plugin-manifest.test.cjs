@@ -104,7 +104,7 @@ test("WorkBuddy manifest uses a portable plugin-root MCP path", () => {
     fs.existsSync(path.join(pluginRoot, "scripts/docmost-keychain-proxy.cjs")),
     true,
   );
-  assert.equal(marketplace.name, "docmost-knowledge");
+  assert.equal(marketplace.name, "open-context");
   assert.equal(marketplacePlugin.source, "./plugins/docmost-knowledge");
   assert.equal(marketplacePlugin.version, manifest.version);
 });

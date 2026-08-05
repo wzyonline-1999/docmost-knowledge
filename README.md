@@ -48,7 +48,7 @@ Add this repository as a Codex marketplace and install its plugin:
 
 ```bash
 codex plugin marketplace add wzyonline-1999/docmost-knowledge
-codex plugin add docmost-knowledge@docmost-knowledge
+codex plugin add docmost-knowledge@open-context
 ```
 
 Restart Codex after installation.
@@ -56,11 +56,11 @@ Restart Codex after installation.
 ### WorkBuddy
 
 Add this GitHub repository as a WorkBuddy/CodeBuddy plugin marketplace, then
-install `docmost-knowledge@docmost-knowledge` and reload plugins:
+install `docmost-knowledge@open-context` and reload plugins:
 
 ```bash
 /plugin marketplace add wzyonline-1999/docmost-knowledge
-/plugin install docmost-knowledge@docmost-knowledge
+/plugin install docmost-knowledge@open-context
 /reload-plugins
 ```
 

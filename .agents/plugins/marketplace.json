@@ -1,7 +1,7 @@
 {
-  "name": "docmost-knowledge",
+  "name": "open-context",
   "interface": {
-    "displayName": "Docmost Knowledge"
+    "displayName": "Open Context"
   },
   "plugins": [
     {
